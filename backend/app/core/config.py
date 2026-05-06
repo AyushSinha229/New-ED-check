@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     max_upload_mb: int = 50
     angle_tolerance_deg: float = 3.0
     length_tolerance_ratio: float = 0.08
-    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    cors_origins: list[str] = ["*"];
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
