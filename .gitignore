@@ -1,0 +1,9 @@
+backend/.venv/
+backend/__pycache__/
+backend/app/**/__pycache__/
+backend/drawing_eval.db
+frontend/node_modules/
+frontend/dist/
+storage/uploads/
+storage/outputs/
+*.pyc
