@@ -1,6 +1,6 @@
 import type { Job, ReferenceDrawing, Result, Submission } from "../types";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = "/api";
 
 async function parse<T>(response: Response): Promise<T> {
   if (!response.ok) {
