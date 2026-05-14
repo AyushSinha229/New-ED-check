@@ -10,7 +10,12 @@ from skimage.metrics import structural_similarity
 from skimage.morphology import skeletonize
 
 COMPARE_SIZE = (900, 900)
-WEIGHTS = {"overlap": 0.50, "edge_ssim": 0.20, "shape": 0.15, "features": 0.15}
+WEIGHTS = {
+    "overlap": 0.40,
+    "edge_ssim": 0.25,
+    "shape": 0.20,
+    "features": 0.15,
+}
 
 
 def _line_mask(gray: np.ndarray) -> np.ndarray:
@@ -158,14 +163,21 @@ def _structure_from_mask(mask: np.ndarray) -> dict[str, np.ndarray]:
 
 
 def _overlap_score(ref_edge: np.ndarray, stu_edge: np.ndarray) -> float:
-    kernel = np.ones((15, 15), np.uint8)
+    # Bigger tolerance for hand-drawn / slightly shifted engineering drawings
+    kernel = np.ones((25, 25), np.uint8)
+
     ref = ref_edge > 0
     stu = stu_edge > 0
+
     ref_dilated = cv2.dilate(ref_edge, kernel, iterations=1) > 0
     stu_dilated = cv2.dilate(stu_edge, kernel, iterations=1) > 0
+
     ref_hits = np.logical_and(ref, stu_dilated).sum() / max(1, ref.sum())
     stu_hits = np.logical_and(stu, ref_dilated).sum() / max(1, stu.sum())
-    return float(max(0.0, min(1.0, (ref_hits + stu_hits) / 2.0)))
+
+    overlap = (ref_hits + stu_hits) / 2.0
+
+    return float(max(0.0, min(1.0, overlap)))
 
 
 def _edge_ssim(ref_edge: np.ndarray, stu_edge: np.ndarray) -> float:
@@ -245,6 +257,13 @@ def _shape_score(ref_mask: np.ndarray, stu_mask: np.ndarray) -> tuple[float, dic
                     continue
                 error = abs(ref_shape["area_ratio"] - stu_shape["area_ratio"]) * 5.0
                 error += abs(ref_shape["aspect_ratio"] - stu_shape["aspect_ratio"]) * 0.25
+                ref_x, ref_y, ref_w, ref_h = ref_shape["bbox"]
+                stu_x, stu_y, stu_w, stu_h = stu_shape["bbox"]
+                position_error = (
+                    abs(ref_x - stu_x) / max(1, ref_mask.shape[1])
+                    + abs(ref_y - stu_y) / max(1, ref_mask.shape[0])
+                )
+                error += position_error * 1.5
                 if error < best_error:
                     best_error = error
                     best_index = idx
@@ -288,8 +307,10 @@ def _feature_score(ref_edge: np.ndarray, stu_edge: np.ndarray) -> tuple[float, d
     for pair in pairs:
         if len(pair) == 2 and pair[0].distance < 0.78 * pair[1].distance:
             good.append(pair[0])
-    denominator = max(1, max(len(ref_kp), len(stu_kp)))
-    ratio = max(0.0, min(1.0, len(good) / denominator))
+    denominator = max(1, min(len(ref_kp), len(stu_kp)))
+    raw_ratio = len(good) / denominator
+    ratio = raw_ratio * 3.5
+    ratio = max(0.0, min(1.0, ratio))
     errors = []
     if ratio < 0.10:
         errors.append(f"Edge feature match ratio is low ({ratio:.2f})")
@@ -314,29 +335,7 @@ def compare_drawings(reference_processed: dict[str, np.ndarray], student_process
     shape_score, shape_metrics, shape_mismatch, shape_errors = _shape_score(ref["mask"], stu["mask"])
     feature_score, feature_metrics, feature_errors = _feature_score(ref["edge"], stu["edge"])
 
-    score = (
-        overlap * 50.0
-        + edge_ssim * 20.0
-        + shape_score * 15.0
-        + feature_score * 15.0
-    )
-    hard_difference = overlap < 0.20 and (shape_mismatch or feature_score < 0.08)
-    errors: list[str] = []
-    if overlap < 0.30:
-        errors.append(f"Drawing line overlap is low ({overlap:.2f})")
-    if edge_ssim < 0.45:
-        errors.append(f"Edge-only SSIM is low ({edge_ssim:.2f})")
-    errors.extend(shape_errors)
-    errors.extend(feature_errors)
-    if hard_difference:
-        score = 0.0
-        errors.insert(0, "Drawing structure does not match reference")
-    elif shape_mismatch:
-        score *= 0.50
-    if overlap < 0.25:
-        score = min(score, 25.0)
-    if overlap > 0.60:
-        score = max(score, 60.0)
+    
     metrics = {
         "weights": WEIGHTS,
         "category_scores": {
